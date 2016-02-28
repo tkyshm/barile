@@ -36,14 +36,13 @@
 
 -record(state, {
           nodes = [{node(), alive}] :: [{node(), term()}],
-          tasks = [] :: [task()]
+          tasks = dict:new() :: dict:dict(task_name(), {schedule(), detail()})
          }).
 
 -type task_name() :: binary().
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
--type task() :: dict:dict(task_name(), {schedule(), detail()}).
 
 %%%===================================================================
 %%% API
@@ -54,7 +53,8 @@
 %%% @spec add_task(task_name()) -> term()
 %%% @end
 -spec add_task(task_name(), schedule(), detail()) -> term().
-add_task(Task, Schedule, Detail) -> gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
+add_task(Task, Schedule, Detail) -> 
+    gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
 
 %%% @doc
 %%% Cancels the task
@@ -62,7 +62,8 @@ add_task(Task, Schedule, Detail) -> gen_server:call(?SERVER, {add, Task, Schedul
 %%% @spec cancel_task(task_name()) -> term().
 %%% @end
 -spec cancel_task(task_name()) -> term().
-cancel_task(Task) -> gen_server:call(?SERVER, {cancel, Task}).
+cancel_task(Task) -> 
+    gen_server:call(?SERVER, {cancel, Task}).
 
 %%% @doc
 %%% Shows the registered schedule of the task.
@@ -70,7 +71,8 @@ cancel_task(Task) -> gen_server:call(?SERVER, {cancel, Task}).
 %%% @spec show_schedule(task_name()) -> term().
 %%% @end
 -spec show_schedule(binary()) -> term().
-show_schedule(Task) -> gen_server:call(?SERVER, {show, Task}).
+show_schedule(Task) -> 
+    gen_server:call(?SERVER, {show, Task}).
 
 %%% @doc
 %%% Shows schedules of all tasks.
@@ -78,7 +80,8 @@ show_schedule(Task) -> gen_server:call(?SERVER, {show, Task}).
 %%% @spec show_schedules() -> term().
 %%% @end
 -spec show_schedules() -> term().
-show_schedules() -> gen_server:call(?SERVER, {show, all}).
+show_schedules() -> 
+    gen_server:call(?SERVER, {show, all}).
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -86,7 +89,8 @@ show_schedules() -> gen_server:call(?SERVER, {show, all}).
 %%% @spec members() -> term().
 %%% @end
 -spec members() -> [term()].
-members() -> gen_server:call(?SERVER, {members}).
+members() -> 
+    gen_server:call(?SERVER, {members}).
 
 %%% @doc
 %%% Joins a node as barile members.
@@ -94,7 +98,8 @@ members() -> gen_server:call(?SERVER, {members}).
 %%% @spec members() -> term().
 %%% @end
 -spec join_node(node()) -> term().
-join_node(Node) -> gen_server:cast(?SERVER, {join, Node}).
+join_node(Node) -> 
+    gen_server:cast(?SERVER, {join, Node}).
 
 %%% @doc
 %%% Leaves a node from barile members.
@@ -147,20 +152,19 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add, TaskName, Schedule, Detail}, _From, State) ->
-    Task = {TaskName, Schedule, Detail},
     %% TODO: receive a message from task worker
-    NewTasks = [Task|State#state.tasks],
-    io:format("adds a task: ~p", [Task]),
+    NewTasks = dict:append(TaskName, {Schedule, Detail}, State#state.tasks),
+    io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({cancel, _Task}, _From, State) ->
     Reply = ok,
     {reply, Reply, State};
 handle_call({show, all}, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State};
-handle_call({show, _Task}, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State};
+    {reply, dict:to_list(State#state.tasks), State};
+handle_call({show, TaskName}, _From, State) ->
+    Task = dict:find(TaskName, State#state.tasks),
+    %% TODO: formats output.
+    {reply, {TaskName, Task}, State};
 handle_call({members}, _From, State) ->
     Reply = ok,
     {reply, Reply, State};
