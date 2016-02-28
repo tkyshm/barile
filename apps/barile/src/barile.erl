@@ -35,7 +35,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          nodes = [{node(), alive}] :: [{node(), term()}],
+          nodes = [{node(), joined}] :: [{node(), node_status()}],
           tasks = dict:new() :: dict:dict(task_name(), {schedule(), detail()})
          }).
 
@@ -43,6 +43,7 @@
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
+-type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
 %%% API
@@ -153,15 +154,9 @@ init([]) ->
 %%--------------------------------------------------------------------
 handle_call({add, TaskName, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
     %% TODO: receive a message from task worker
-    case dict:find(TaskName, Tasks) of
-        error ->
-            NewTasks = dict:append(TaskName, {Schedule, Detail}, Tasks),
-            io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
-            {reply, ok, State#state{ tasks = NewTasks }};
-        _ ->
-            io:format("already task is registered: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
-            {reply, {already_registered, TaskName}, State}
-    end;
+    NewTasks = dict:store(TaskName, {Schedule, Detail}, Tasks),
+    io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
+    {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({cancel, TaskName}, _From, State) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:erase(TaskName, State#state.tasks),
@@ -179,7 +174,7 @@ handle_call({show, TaskName}, _From, State) ->
 handle_call({members}, _From, State) ->
     {reply, State#state.nodes, State};
 handle_call(Request, _From, State) ->
-    {reply, {bad_request, Request}, State}.
+    {reply, {Request, bad_request}, State}.
 
 %%--------------------------------------------------------------------
 %% @private
