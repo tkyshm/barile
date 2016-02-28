@@ -162,9 +162,13 @@ handle_call({cancel, _Task}, _From, State) ->
 handle_call({show, all}, _From, State) ->
     {reply, dict:to_list(State#state.tasks), State};
 handle_call({show, TaskName}, _From, State) ->
-    Task = dict:find(TaskName, State#state.tasks),
-    %% TODO: formats output.
-    {reply, {TaskName, Task}, State};
+    case dict:find(TaskName, State#state.tasks) of
+        error -> 
+            {reply, {TaskName, not_found}, State};
+        {ok, Task} ->
+            %% TODO: formats output.
+            {reply, {TaskName, Task}, State}
+    end;
 handle_call({members}, _From, State) ->
     Reply = ok,
     {reply, Reply, State};
