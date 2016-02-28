@@ -35,12 +35,15 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          nodes = [{node(), alive}] :: [{node(), term()}]
+          nodes = [{node(), alive}] :: [{node(), term()}],
+          tasks = [] :: [task()]
          }).
 
+-type task_name() :: binary().
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
+-type task() :: dict:dict(task_name(), {schedule(), detail()}).
 
 %%%===================================================================
 %%% API
@@ -48,23 +51,23 @@
 %%% @doc
 %%% Adds some user's task based on schedule
 %%%
-%%% @spec add_task(binary()) -> term()
+%%% @spec add_task(task_name()) -> term()
 %%% @end
--spec add_task(binary(), schedule(), detail()) -> term().
+-spec add_task(task_name(), schedule(), detail()) -> term().
 add_task(Task, Schedule, Detail) -> gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
 
 %%% @doc
 %%% Cancels the task
 %%%
-%%% @spec cancel_task(binary()) -> term().
+%%% @spec cancel_task(task_name()) -> term().
 %%% @end
--spec cancel_task(binary()) -> term().
+-spec cancel_task(task_name()) -> term().
 cancel_task(Task) -> gen_server:call(?SERVER, {cancel, Task}).
 
 %%% @doc
 %%% Shows the registered schedule of the task.
 %%%
-%%% @spec show_schedule(binary()) -> term().
+%%% @spec show_schedule(task_name()) -> term().
 %%% @end
 -spec show_schedule(binary()) -> term().
 show_schedule(Task) -> gen_server:call(?SERVER, {show, Task}).
@@ -143,9 +146,12 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add, _Task, _Schedule, _Detail}, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State};
+handle_call({add, TaskName, Schedule, Detail}, _From, State) ->
+    Task = {TaskName, Schedule, Detail},
+    %% TODO: receive a message from task worker
+    NewTasks = [Task|State#state.tasks],
+    io:format("adds a task: ~p", [Task]),
+    {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({cancel, _Task}, _From, State) ->
     Reply = ok,
     {reply, Reply, State};
@@ -181,7 +187,7 @@ handle_cast({join, Node}, State) ->
     NewNodes = [{Node, joinning}|State#state.nodes],
     % TODO: health checks, if 'Node' is healthy, node status changes 
     %       alive.
-    {noreply, NewNodes};
+    {noreply, State#state{nodes = NewNodes}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
