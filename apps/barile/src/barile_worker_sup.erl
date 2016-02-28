@@ -51,7 +51,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 init([]) ->
         WorkerSpec = {'barile_worker', {'barile_worker', start_link, []},
-                          temprary, 5000, worker, ['barile_worker']},
+                          temporary, 5000, worker, ['barile_worker']},
         {ok, {{simple_one_for_one, 100, 600}, [WorkerSpec]}}.
 
 %%%===================================================================
