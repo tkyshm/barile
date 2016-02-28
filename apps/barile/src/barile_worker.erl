@@ -2,25 +2,16 @@
 %%% @author tkyshm
 %%% @copyright (C) 2016, tkyshm
 %%% @doc
-%%% barile is a middleware to schedules and execute any tasks.
-%%% barile's goal is a alternative for 'cron' more easy to scale out
-%%% and to establish high availavility batch systems.
 %%%
 %%% @end
-%%% Created : 2016-02-28 16:38:21.414009
+%%% Created : 2016-02-28 17:18:44.282133
 %%%-------------------------------------------------------------------
--module(barile).
+-module(barile_worker).
 
 -behaviour(gen_server).
 
 %% API
--export([start_link/0,
-         add_task/3,
-         cancel_task/1,
-         show_schedule/1,
-         show_schedules/0,
-         members/0
-        ]).
+-export([start_link/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -34,51 +25,10 @@
 
 -record(state, {}).
 
-%% TODO: specifies the proprietary schedule time format.
--type schedule() :: term().
-
 %%%===================================================================
 %%% API
 %%%===================================================================
-%%% @doc
-%%% Adds some user's task based on schedule
-%%%
-%%% @spec add_task(binary()) -> term()
-%%% @end
--spec add_task(binary(), schedule(), term()) -> term().
-add_task(Task, Schedule, Detail) -> gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
 
-%%% @doc
-%%% Cancels the task
-%%%
-%%% @spec cancel_task(binary()) -> term().
-%%% @end
--spec cancel_task(binary()) -> term().
-cancel_task(Task) -> gen_server:call(?SERVER, {cancel, Task}).
-
-%%% @doc
-%%% Shows the registered schedule of the task.
-%%%
-%%% @spec show_schedule(binary()) -> term().
-%%% @end
--spec show_schedule(binary()) -> term().
-show_schedule(Task) -> gen_server:call(?SERVER, {show, Task}).
-
-%%% @doc
-%%% Shows schedules of all tasks.
-%%%
-%%% @spec show_schedules() -> term().
-%%% @end
--spec show_schedules() -> term().
-show_schedules() -> gen_server:call(?SERVER, {show, all}).
-
-%%% @doc
-%%% Lists up members of distributed nodes.
-%%%
-%%% @spec members() -> term().
-%%% @end
--spec members() -> [term()].
-members() -> gen_server:call(?SERVER, {members}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -122,21 +72,6 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add, _Task, _Schedule, _Detail}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
-handle_call({cancel, _Task}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
-handle_call({show, all}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
-handle_call({show, _Task}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
-handle_call({members}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
 handle_call(_Request, _From, State) ->
         Reply = ok,
         {reply, Reply, State}.
@@ -195,3 +130,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+
+
+

@@ -32,7 +32,7 @@ init([]) ->
                   temprary, 5000, worker, ['barile']},
     WorkerSupSpec = {'barile_worker_sup', {'barile_worker_sup', start_link, []},
                      permanent, infinity, supervisor, ['barile_worker_sup']},
-    {ok, {{one_for_all, 0, 1}, [BarileSpec, WorkerSupSpec]}}.
+    {ok, {{one_for_all, 100, 600}, [BarileSpec, WorkerSupSpec]}}.
 
 %%====================================================================
 %% Internal functions
