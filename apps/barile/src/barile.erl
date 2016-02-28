@@ -151,11 +151,17 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add, TaskName, Schedule, Detail}, _From, State) ->
+handle_call({add, TaskName, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
     %% TODO: receive a message from task worker
-    NewTasks = dict:fetch(TaskName, {Schedule, Detail}, State#state.tasks),
-    io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
-    {reply, ok, State#state{ tasks = NewTasks }};
+    case dict:find(TaskName, Tasks) of
+        error ->
+            NewTasks = dict:append(TaskName, {Schedule, Detail}, Tasks),
+            io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
+            {reply, ok, State#state{ tasks = NewTasks }};
+        _ ->
+            io:format("already task is registered: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
+            {reply, {already_registered, TaskName}, State}
+    end;
 handle_call({cancel, TaskName}, _From, State) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:erase(TaskName, State#state.tasks),
