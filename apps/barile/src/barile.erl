@@ -153,12 +153,13 @@ init([]) ->
 %%--------------------------------------------------------------------
 handle_call({add, TaskName, Schedule, Detail}, _From, State) ->
     %% TODO: receive a message from task worker
-    NewTasks = dict:append(TaskName, {Schedule, Detail}, State#state.tasks),
+    NewTasks = dict:fetch(TaskName, {Schedule, Detail}, State#state.tasks),
     io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
     {reply, ok, State#state{ tasks = NewTasks }};
-handle_call({cancel, _Task}, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State};
+handle_call({cancel, TaskName}, _From, State) ->
+    %% TODO: receive a message from task worker
+    NewTasks = dict:erase(TaskName, State#state.tasks),
+    {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
     {reply, dict:to_list(State#state.tasks), State};
 handle_call({show, TaskName}, _From, State) ->
@@ -170,11 +171,9 @@ handle_call({show, TaskName}, _From, State) ->
             {reply, {TaskName, Task}, State}
     end;
 handle_call({members}, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State};
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, State#state.nodes, State};
+handle_call(Request, _From, State) ->
+    {reply, {bad_request, Request}, State}.
 
 %%--------------------------------------------------------------------
 %% @private
