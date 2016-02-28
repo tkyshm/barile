@@ -19,7 +19,9 @@
          cancel_task/1,
          show_schedule/1,
          show_schedules/0,
-         members/0
+         members/0,
+         join_node/1,
+         leave_node/1
         ]).
 
 %% gen_server callbacks
@@ -32,10 +34,13 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+          nodes = [{node(), alive}] :: [{node(), term()}]
+         }).
 
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
+-type detail() :: binary().
 
 %%%===================================================================
 %%% API
@@ -45,7 +50,7 @@
 %%%
 %%% @spec add_task(binary()) -> term()
 %%% @end
--spec add_task(binary(), schedule(), term()) -> term().
+-spec add_task(binary(), schedule(), detail()) -> term().
 add_task(Task, Schedule, Detail) -> gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
 
 %%% @doc
@@ -80,6 +85,22 @@ show_schedules() -> gen_server:call(?SERVER, {show, all}).
 -spec members() -> [term()].
 members() -> gen_server:call(?SERVER, {members}).
 
+%%% @doc
+%%% Joins a node as barile members.
+%%%
+%%% @spec members() -> term().
+%%% @end
+-spec join_node(node()) -> term().
+join_node(Node) -> gen_server:cast(?SERVER, {join, Node}).
+
+%%% @doc
+%%% Leaves a node from barile members.
+%%%
+%%% @spec members() -> term().
+%%% @end
+-spec leave_node(node()) -> term().
+leave_node(Node) -> gen_server:cast(?SERVER, {leave, Node}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Starts the server
@@ -88,7 +109,7 @@ members() -> gen_server:call(?SERVER, {members}).
 %% @end
 %%--------------------------------------------------------------------
 start_link() ->
-        gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -106,7 +127,7 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-        {ok, #state{}}.
+    {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -123,23 +144,23 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add, _Task, _Schedule, _Detail}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
+    Reply = ok,
+    {reply, Reply, State};
 handle_call({cancel, _Task}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
+    Reply = ok,
+    {reply, Reply, State};
 handle_call({show, all}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
+    Reply = ok,
+    {reply, Reply, State};
 handle_call({show, _Task}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
+    Reply = ok,
+    {reply, Reply, State};
 handle_call({members}, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State};
+    Reply = ok,
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State}.
+    Reply = ok,
+    {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -151,8 +172,18 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast({leave, Node}, State) ->
+    NewNodes = [{Node, leaving}|State#state.nodes],
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, NewNodes};
+handle_cast({join, Node}, State) ->
+    NewNodes = [{Node, joinning}|State#state.nodes],
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, NewNodes};
 handle_cast(_Msg, State) ->
-        {noreply, State}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -165,7 +196,7 @@ handle_cast(_Msg, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
-        {noreply, State}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -179,7 +210,7 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-        ok.
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -190,7 +221,7 @@ terminate(_Reason, _State) ->
 %% @end
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) ->
-        {ok, State}.
+    {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
