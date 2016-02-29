@@ -37,7 +37,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          nodes = [{node(), joined}] :: [{node(), node_status()}],
+          nodes = dict:new() :: dict:dict(node(), node_status()),
           tasks = dict:new() :: dict:dict(task_name(), {schedule(), detail()})
          }).
 
@@ -113,17 +113,18 @@ members() ->
 %%%
 %%% @spec members() -> term().
 %%% @end
--spec join_node(node()) -> term().
+-spec join_node(atom()) -> term().
 join_node(Node) -> 
-    gen_server:cast(?SERVER, {join, Node}).
+    gen_server:call(?SERVER, {join, Node}).
 
 %%% @doc
 %%% Leaves a node from barile members.
 %%%
 %%% @spec members() -> term().
 %%% @end
--spec leave_node(node()) -> term().
-leave_node(Node) -> gen_server:cast(?SERVER, {leave, Node}).
+-spec leave_node(atom()) -> term().
+leave_node(Node) -> 
+    gen_server:call(?SERVER, {leave, Node}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -151,7 +152,7 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    {ok, #state{}}.
+    {ok, #state{ nodes = dict:store(node(), join, dict:new()) }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -186,18 +187,24 @@ handle_call({show, TaskName}, _From, State) ->
             {reply, {TaskName, format_schedule({TaskName, Task})}, State}
     end;
 handle_call({members}, _From, State) ->
-    {reply, State#state.nodes, State};
+    {reply, dict:to_list(State#state.nodes), State};
 handle_call({join, Node}, _From, State = #state{ nodes = Nodes }) ->
-    NewNodes = [{Node, joinning}|Nodes],
+    NewNodes = dict:store(Node, joinning, Nodes),
     % TODO: health checks, if 'Node' is healthy, node status changes 
     %       alive.
-    {noreply, State#state{nodes = NewNodes}};
+    {reply, ok, State#state{ nodes = NewNodes }};
 handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
-    proplists:delete(Node, Nodes), 
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, State};
+    case dict:find(Node, Nodes) of 
+        error ->
+           {reply, {Node, not_found_node}, State};
+        _ ->
+           % TODO: health checks, if 'Node' is healthy, node status changes 
+           %       alive.
+           NewNodes = dict:store(Node, leaving, Nodes),
+           {reply, ok, State#state{ nodes = NewNodes }}
+    end;
 handle_call(Request, _From, State) ->
+    lager:info("test"),
     {reply, {Request, bad_request}, State}.
 
 %%--------------------------------------------------------------------
@@ -211,6 +218,7 @@ handle_call(Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast(_Msg, State) ->
+    lager:info("test"),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
