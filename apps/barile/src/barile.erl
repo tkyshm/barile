@@ -32,6 +32,8 @@
          terminate/2,
          code_change/3]).
 
+-compile([{parse_transform, lager_transform}]).
+
 -define(SERVER, ?MODULE).
 
 -record(state, {
@@ -82,6 +84,7 @@ show_schedule(Task) ->
 %%% @end
 -spec show_schedules() -> term().
 show_schedules() -> 
+    lager:info("test!"),
     gen_server:call(?SERVER, {show, all}).
 
 %%% @doc
@@ -173,6 +176,16 @@ handle_call({show, TaskName}, _From, State) ->
     end;
 handle_call({members}, _From, State) ->
     {reply, State#state.nodes, State};
+handle_call({join, Node}, _From, State = #state{ nodes = Nodes }) ->
+    NewNodes = [{Node, joinning}|Nodes],
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, State#state{nodes = NewNodes}};
+handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
+    proplists:delete(Node, Nodes), 
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, State};
 handle_call(Request, _From, State) ->
     {reply, {Request, bad_request}, State}.
 
@@ -186,16 +199,6 @@ handle_call(Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({leave, Node}, State) ->
-    NewNodes = [{Node, leaving}|State#state.nodes],
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, NewNodes};
-handle_cast({join, Node}, State) ->
-    NewNodes = [{Node, joinning}|State#state.nodes],
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, State#state{nodes = NewNodes}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 

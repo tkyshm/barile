@@ -7,6 +7,8 @@
 
 -behaviour(application).
 
+-compile([{parse_transform, lager_transform}]).
+
 %% Application callbacks
 -export([start/2
         ,stop/1]).
