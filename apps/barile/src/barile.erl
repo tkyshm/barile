@@ -173,6 +173,16 @@ handle_call({show, TaskName}, _From, State) ->
     end;
 handle_call({members}, _From, State) ->
     {reply, State#state.nodes, State};
+handle_call({leave, Node}, _From, State) ->
+    NewNodes = [{Node, leaving}|State#state.nodes],
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, {Node, leaving}, State#state{ nodes = NewNodes} };
+handle_call({join, Node}, _From, State) ->
+    NewNodes = [{Node, joinning}|State#state.nodes],
+    % TODO: health checks, if 'Node' is healthy, node status changes 
+    %       alive.
+    {noreply, {Node, joinning}, State#state{ nodes = NewNodes} };
 handle_call(Request, _From, State) ->
     {reply, {Request, bad_request}, State}.
 
