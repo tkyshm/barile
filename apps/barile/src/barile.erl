@@ -45,6 +45,7 @@
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
+-type task() :: {task_name(), {schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
@@ -75,7 +76,15 @@ cancel_task(Task) ->
 %%% @end
 -spec show_schedule(binary()) -> term().
 show_schedule(Task) -> 
-    gen_server:call(?SERVER, {show, Task}).
+    case gen_server:call(?SERVER, {show, Task}) of
+        {_TaskName, not_found} ->
+            not_found_task;
+        %Task = {_TaskName, {_Schedule, _Detail}} ->
+        {_TaskName, Bin } ->
+            %% TODO: delete theses prints in future. This output is for debug on erlang shell.
+            io:format("~ts", [Bin]),
+            Bin
+    end.
 
 %%% @doc
 %%% Shows schedules of all tasks.
@@ -84,8 +93,11 @@ show_schedule(Task) ->
 %%% @end
 -spec show_schedules() -> term().
 show_schedules() -> 
-    lager:info("test!"),
-    gen_server:call(?SERVER, {show, all}).
+    Bins = gen_server:call(?SERVER, {show, all}),
+    %% TODO: delete theses prints in future. This output is for debug on erlang shell.
+    io:format("[task_name]\t[schedule]\t[description]\n"),
+    io:format("~ts",[Bins]),
+    Bins.
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -158,21 +170,20 @@ init([]) ->
 handle_call({add, TaskName, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:store(TaskName, {Schedule, Detail}, Tasks),
-    io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
+    lager:info("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({cancel, TaskName}, _From, State) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:erase(TaskName, State#state.tasks),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
-    {reply, dict:to_list(State#state.tasks), State};
+    {reply, format_schedules(dict:to_list(State#state.tasks)), State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
             {reply, {TaskName, not_found}, State};
         {ok, Task} ->
-            %% TODO: formats output.
-            {reply, {TaskName, Task}, State}
+            {reply, {TaskName, format_schedule({TaskName, Task})}, State}
     end;
 handle_call({members}, _From, State) ->
     {reply, State#state.nodes, State};
@@ -243,3 +254,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+-spec format_schedules([task()]) -> binary().
+format_schedules(Tasks) ->
+    lists:foldl(fun(X, Acc) -> Line = format_schedule(X),
+                               << Acc/binary, Line/binary >>
+                end, <<>>, Tasks). 
+
+-spec format_schedule(task()) -> binary().
+format_schedule({TaskName, {Schedule, Detail}}) ->
+    <<TaskName/binary, "\t\t", Schedule/binary, "\t\t", Detail/binary, "\n">>.
