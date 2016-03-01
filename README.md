@@ -3,15 +3,6 @@
 An OTP application
 TODO: 英語で概要を書く
 
-## How to install
-```
- $ rebar3 compile
-```
-
-## Getting started
-```
- $ rebar3 compile
-```
 ## 問題設定
 問題設定: cronを動かすバッチサーバが冗長化されておらず、SPOFとなっている.これを解消したい.
 ## ゴール
