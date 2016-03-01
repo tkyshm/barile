@@ -32,10 +32,12 @@
          terminate/2,
          code_change/3]).
 
+-compile([{parse_transform, lager_transform}]).
+
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          nodes = [{node(), joined}] :: [{node(), node_status()}],
+          nodes = dict:new() :: dict:dict(node(), node_status()),
           tasks = dict:new() :: dict:dict(task_name(), {schedule(), detail()})
          }).
 
@@ -43,6 +45,7 @@
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
+-type task() :: {task_name(), {schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
@@ -73,7 +76,15 @@ cancel_task(Task) ->
 %%% @end
 -spec show_schedule(binary()) -> term().
 show_schedule(Task) -> 
-    gen_server:call(?SERVER, {show, Task}).
+    case gen_server:call(?SERVER, {show, Task}) of
+        {_TaskName, not_found} ->
+            not_found_task;
+        %Task = {_TaskName, {_Schedule, _Detail}} ->
+        {_TaskName, Bin } ->
+            %% TODO: delete theses prints in future. This output is for debug on erlang shell.
+            io:format("~ts", [Bin]),
+            Bin
+    end.
 
 %%% @doc
 %%% Shows schedules of all tasks.
@@ -82,7 +93,11 @@ show_schedule(Task) ->
 %%% @end
 -spec show_schedules() -> term().
 show_schedules() -> 
-    gen_server:call(?SERVER, {show, all}).
+    Bins = gen_server:call(?SERVER, {show, all}),
+    %% TODO: delete theses prints in future. This output is for debug on erlang shell.
+    io:format("[task_name]\t[schedule]\t[description]\n"),
+    io:format("~ts",[Bins]),
+    Bins.
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -98,17 +113,18 @@ members() ->
 %%%
 %%% @spec members() -> term().
 %%% @end
--spec join_node(node()) -> term().
+-spec join_node(atom()) -> term().
 join_node(Node) -> 
-    gen_server:cast(?SERVER, {join, Node}).
+    gen_server:call(?SERVER, {join, Node}).
 
 %%% @doc
 %%% Leaves a node from barile members.
 %%%
 %%% @spec members() -> term().
 %%% @end
--spec leave_node(node()) -> term().
-leave_node(Node) -> gen_server:cast(?SERVER, {leave, Node}).
+-spec leave_node(atom()) -> term().
+leave_node(Node) -> 
+    gen_server:call(?SERVER, {leave, Node}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -136,7 +152,7 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    {ok, #state{}}.
+    {ok, #state{ nodes = dict:store(node(), join, dict:new()) }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -155,35 +171,40 @@ init([]) ->
 handle_call({add, TaskName, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:store(TaskName, {Schedule, Detail}, Tasks),
-    io:format("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
+    lager:info("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({cancel, TaskName}, _From, State) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:erase(TaskName, State#state.tasks),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
-    {reply, dict:to_list(State#state.tasks), State};
+    {reply, format_schedules(dict:to_list(State#state.tasks)), State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
             {reply, {TaskName, not_found}, State};
         {ok, Task} ->
-            %% TODO: formats output.
-            {reply, {TaskName, Task}, State}
+            {reply, {TaskName, format_schedule({TaskName, Task})}, State}
     end;
 handle_call({members}, _From, State) ->
-    {reply, State#state.nodes, State};
-handle_call({leave, Node}, _From, State) ->
-    NewNodes = [{Node, leaving}|State#state.nodes],
+    {reply, dict:to_list(State#state.nodes), State};
+handle_call({join, Node}, _From, State = #state{ nodes = Nodes }) ->
+    NewNodes = dict:store(Node, joinning, Nodes),
     % TODO: health checks, if 'Node' is healthy, node status changes 
     %       alive.
-    {noreply, {Node, leaving}, State#state{ nodes = NewNodes} };
-handle_call({join, Node}, _From, State) ->
-    NewNodes = [{Node, joinning}|State#state.nodes],
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, {Node, joinning}, State#state{ nodes = NewNodes} };
+    {reply, ok, State#state{ nodes = NewNodes }};
+handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
+    case dict:find(Node, Nodes) of 
+        error ->
+           {reply, {Node, not_found_node}, State};
+        _ ->
+           % TODO: health checks, if 'Node' is healthy, node status changes 
+           %       alive.
+           NewNodes = dict:store(Node, leaving, Nodes),
+           {reply, ok, State#state{ nodes = NewNodes }}
+    end;
 handle_call(Request, _From, State) ->
+    lager:info("test"),
     {reply, {Request, bad_request}, State}.
 
 %%--------------------------------------------------------------------
@@ -196,17 +217,8 @@ handle_call(Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_cast({leave, Node}, State) ->
-    NewNodes = [{Node, leaving}|State#state.nodes],
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, NewNodes};
-handle_cast({join, Node}, State) ->
-    NewNodes = [{Node, joinning}|State#state.nodes],
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {noreply, State#state{nodes = NewNodes}};
 handle_cast(_Msg, State) ->
+    lager:info("test"),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -250,3 +262,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+-spec format_schedules([task()]) -> binary().
+format_schedules(Tasks) ->
+    lists:foldl(fun(X, Acc) -> Line = format_schedule(X),
+                               << Acc/binary, Line/binary >>
+                end, <<>>, Tasks). 
+
+-spec format_schedule(task()) -> binary().
+format_schedule({TaskName, {Schedule, Detail}}) ->
+    <<TaskName/binary, "\t\t", Schedule/binary, "\t\t", Detail/binary, "\n">>.
