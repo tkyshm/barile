@@ -11,7 +11,9 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/0,
+         spawn_child/1
+        ]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -21,6 +23,9 @@
 %%%===================================================================
 %%% API functions
 %%%===================================================================
+
+spawn_child(Task) ->
+    supervisor:start_child(?MODULE, [Task]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -50,11 +55,11 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-        WorkerSpec = {'barile_worker', {'barile_worker', start_link, []},
-                          temporary, 5000, worker, ['barile_worker']},
-        {ok, {{simple_one_for_one, 100, 600}, [WorkerSpec]}}.
+        {ok, {{simple_one_for_one, 100, 600}, [worker_spec()]}}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
+worker_spec() ->
+        {'barile_worker', {'barile_worker', start_link, []},
+         permanent, 5000, worker, ['barile_worker']}.
