@@ -11,7 +11,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0]).
+-export([start_link/3]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -21,9 +21,15 @@
          terminate/2,
          code_change/3]).
 
+-compile([{parse_transform, lager_transform}]).
+
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+          name = undefined :: task_name() | undefined,
+          schedule :: schedule(),
+          detail :: detail()
+         }).
 
 %%%===================================================================
 %%% API
@@ -37,8 +43,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link() ->
-        gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Name, Schedule, Detail) ->
+        gen_server:start_link(?MODULE, [Name, Schedule, Detail], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -55,8 +61,8 @@ start_link() ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([]) ->
-        {ok, #state{}}.
+init([Name, Schedule, Detail]) ->
+    {ok, #state{ name = Name, schedule = Schedule, detail = Detail }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -131,6 +137,37 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+start(Cmd) ->
+    lagar:debug("Starting task command: ~ts", [Cmd]),
+    try erlang:open_port({spawn, Cmd}, [exit_status, stderr_to_stdout, binary, stream]) of
+        Port ->
+            loop(Port,<<>>)
+    catch
+        _:Reason ->
+            case Reason of
+                badarg ->
+                    Message = bad_input_arguments;
+                system_limit ->
+                    Message = too_many_used_ports;
+                _ ->
+                    Message = file:format_error(Reason)
+            end,
+            lager:error("task command error: ~ts", [Message]),
+            start_error
+    end.
 
-
-
+loop(Port, Output) ->
+    receive
+        {Port, {data, Data}} ->
+            lager:debug("Task output: ~ts from ~p", [Data, Port]),
+            loop(Port,<<Output/binary, Data/binary>>);
+        {Port, {exit_status, 0}} ->
+            lager:debug("Finished successfully from ~p", [Port]),
+            {ok, Output};
+        {Port, {exit_status, Status}} ->
+            lager:error("Failed with exit status (~p): ~ts from ~p", [Status, Output, Port]),
+            {exit_error, Output};
+        {'EXIT', Port, Reason} ->
+            lager:error("Failed with port exit: reason ~ts from ~p", [file:format_error(Reason), Port]),
+            {port_error, Output}
+    end.
