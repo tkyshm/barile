@@ -11,7 +11,9 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3]).
+-export([start_link/3,
+         execute/1 %% for debug
+        ]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -26,15 +28,16 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          name = undefined :: task_name() | undefined,
-          schedule :: schedule(),
-          detail :: detail()
+          name = undefined :: barile:task_name() | undefined,
+          schedule :: barile:schedule(),
+          detail :: barile:detail()
          }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-
+execute(Cmd) ->
+    execute_cmd(Cmd).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -137,8 +140,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-start(Cmd) ->
-    lagar:debug("Starting task command: ~ts", [Cmd]),
+execute_cmd(Cmd) ->
+    lager:debug("Starting task command: ~ts", [Cmd]),
     try erlang:open_port({spawn, Cmd}, [exit_status, stderr_to_stdout, binary, stream]) of
         Port ->
             loop(Port,<<>>)
