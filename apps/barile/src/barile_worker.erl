@@ -12,8 +12,8 @@
 
 %% API
 -export([start_link/3,
-         activate/1,
-         execute/1 %% for debug
+         inactivate/1,
+         activate/1
         ]).
 
 %% gen_server callbacks
@@ -92,9 +92,9 @@ init([Name, Schedule, Detail]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({activate}, _From, State) ->
-    {reply, Reply, State#state{ status = activated }};
+    {reply, ok, State#state{ status = activated }};
 handle_call({inactivate}, _From, State) ->
-    {reply, Reply, State#state{ status = inactivated }};
+    {reply, ok, State#state{ status = inactivated }};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -122,19 +122,20 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(trigger_task, State = #state{ name = Name, status = inactivated }) ->
+handle_info(trigger_task, State = #state{ name = Name, status = Status }) when Status =:= inactivated ->
     lager:debug("Not Activated Task: ~ts", [Name]),
     {noreply, State};
-handle_info(trigger_task, State = #state{ status = activated, command = Cmd }) ->
+handle_info(trigger_task, State = #state{ name = Name, status = Status, command = Cmd }) when Status =:= activated ->
     %% TODO: need notice result to barile server?
     %% TODO: schedule checkes
     case execute_cmd(Cmd) of
         {ok, Output} ->
-            lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]);
+            lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]),
+            {noreply, State};
         {Reason, Output} ->
-            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output]);
-    end,
-    {noreply, State};
+            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output])
+            {noreply, State}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
