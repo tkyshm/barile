@@ -16,6 +16,8 @@
 %% API
 -export([start_link/0,
          add_task/4,
+         activate_task/1,
+         deactivate_task/1,
          cancel_task/1,
          show_schedule/1,
          show_schedules/0,
@@ -46,7 +48,7 @@
 -type schedule() :: term().
 -type detail() :: binary().
 -type command() :: term().
--type task() :: {task_name(), {schedule(), detail()}}.
+-type task() :: {task_name(), {command(), schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
@@ -63,6 +65,25 @@ add_task(_Task, "", _Schedule, _Detail) ->
     invalid_command;
 add_task(Task, Command, Schedule, Detail) -> 
     gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
+
+%%% @doc
+%%% Activates task
+%%%
+%%% @spec activate_task(task_name()) -> term()
+%%% @end
+-spec activate_task(task_name()) -> term().
+activate_task(TaskName) -> 
+    gen_server:call(?SERVER, {activate, TaskName}).
+
+
+%%% @doc
+%%% Activates task
+%%%
+%%% @spec activate_task(task_name()) -> term()
+%%% @end
+-spec deactivate_task(task_name()) -> term().
+deactivate_task(TaskName) -> 
+    gen_server:call(?SERVER, {deactivate, TaskName}).
 
 %%% @doc
 %%% Cancels the task
@@ -173,12 +194,11 @@ init([]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add, TaskName, Command, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
-    case supervisor:start_child('barile_worker', [TaskName, Schedule, Detail]) of
+    case supervisor:start_child('barile_worker_sup', [TaskName, Command, Schedule, Detail]) of
         {ok, Pid} ->
             %% TODO: receive a message from task worker
             NewTasks = dict:store(TaskName, {Pid, Command, Schedule, Detail}, Tasks),
             lager:info("adds a task: {~p, ~p, ~p, ~p, ~p}", [TaskName, Pid, Command, Schedule, Detail]),
-            barile_worker:activate(Pid),
             {reply, ok, State#state{ tasks = NewTasks }};
         {error, Reason} ->
             {stop, Reason, State} 
@@ -213,8 +233,17 @@ handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
            NewNodes = dict:store(Node, leaving, Nodes),
            {reply, ok, State#state{ nodes = NewNodes }}
     end;
+handle_call({activate, TaskName}, _From, State = #state{ tasks = Tasks }) ->
+    {Pid, _Cmd, _Schedule, _Detail} = dict:fetch(TaskName, Tasks),
+    Reply = barile_worker:activate(Pid),
+    {reply, Reply, State};
+handle_call({deactivate, TaskName}, _From, State = #state{ tasks = Tasks }) ->
+    {Pid, _Cmd, _Schedule, _Detail} = dict:fetch(TaskName, Tasks),
+    Reply = barile_worker:deactivate(Pid),
+    {reply, Reply, State};
 handle_call(Request, _From, State) ->
     {reply, {Request, bad_request}, State}.
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -277,5 +306,5 @@ format_tasks(Tasks) ->
                 end, <<>>, Tasks). 
 
 -spec format_task(task()) -> binary().
-format_task({TaskName, {Schedule, Detail}}) ->
+format_task({TaskName, {_Pid, _Cmd, Schedule, Detail}}) ->
     <<TaskName/binary, "\t\t", Schedule/binary, "\t\t", Detail/binary, "\n">>.

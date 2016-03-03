@@ -11,8 +11,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/3,
-         inactivate/1,
+-export([start_link/4,
+         deactivate/1,
          activate/1
         ]).
 
@@ -28,6 +28,7 @@
 
 -define(SERVER, ?MODULE).
 -define(INTERVAL, 1000). %% 1000 millisecond = 1 second
+-define(INIT_AFTER_SEND_TIME, 5000). %% send_after wait sufficient time.
 
 -record(state, {
           name     = undefined   :: barile:task_name(),
@@ -40,9 +41,9 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
--spec inactivate(pid()) -> term().
-inactivate(Pid) -> 
-    gen_server:call(Pid, {inactivate}).
+-spec deactivate(pid()) -> term().
+deactivate(Pid) -> 
+    gen_server:call(Pid, {deactivate}).
 
 -spec activate(pid()) -> term().
 activate(Pid) -> 
@@ -55,8 +56,8 @@ activate(Pid) ->
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(Name, Schedule, Detail) ->
-        gen_server:start_link(?MODULE, [Name, Schedule, Detail], []).
+start_link(Name, Command, Schedule, Detail) ->
+        gen_server:start_link(?MODULE, [Name, Command, Schedule, Detail], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -73,9 +74,8 @@ start_link(Name, Schedule, Detail) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([Name, Schedule, Detail]) ->
-    erlang:send_after(1000, self(), trigger_task),
-    {ok, #state{ name = Name, schedule = Schedule, detail = Detail, status = inactivated }}.
+init([Name, Command, Schedule, Detail]) ->
+    {ok, #state{ name = Name, schedule = Schedule, detail = Detail, status = inactivated, command = Command }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -91,8 +91,19 @@ init([Name, Schedule, Detail]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({activate}, _From, State) ->
+handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= inactivated ->
+    lager:info("~p Activating...", [Name]),
+    erlang:send_after(?INIT_AFTER_SEND_TIME, self(), trigger_task), %% after execute wait sufficient time. 
     {reply, ok, State#state{ status = activated }};
+handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= activated ->
+    lager:debug("Already ~p is active.", [Name]),
+    {reply, already_activated, State};
+handle_call({deactivate}, _From, State = #state{ name = Name, status = Status }) when Status =:= activated ->
+    lager:info("~p Deactivating...", [Name]),
+    {reply, ok, State#state{ status = inactivated }};
+handle_call({deactivate}, _From, State = #state{ name = Name, status = Status }) when Status =:= inactivated ->
+    lager:info("Already ~p is inactive.", [Name]),
+    {reply, already_inactivated, State};
 handle_call({inactivate}, _From, State) ->
     {reply, ok, State#state{ status = inactivated }};
 handle_call(_Request, _From, State) ->
@@ -131,13 +142,14 @@ handle_info(trigger_task, State = #state{ name = Name, status = Status, command 
     lager:debug("Activated Task: ~ts", [Name]),
     case execute_cmd(Cmd) of
         {ok, Output} ->
-            lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]),
-            {noreply, State};
+            lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]);
         {Reason, Output} ->
-            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output]),
-            {noreply, State}
-    end;
+            lager:error("Failed to execute command( ~p ) reason:~p\toutput:~p", [State#state.command, Reason, Output])
+    end,
+    erlang:send_after(?INTERVAL, self(), trigger_task),
+    {noreply, State};
 handle_info(_Info, State) ->
+    lager:info("nothing to do"),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
