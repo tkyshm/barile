@@ -12,6 +12,7 @@
 
 %% API
 -export([start_link/3,
+         activate/1,
          execute/1 %% for debug
         ]).
 
@@ -26,18 +27,26 @@
 -compile([{parse_transform, lager_transform}]).
 
 -define(SERVER, ?MODULE).
+-define(INTERVAL, 1000). %% 1000 millisecond = 1 second
 
 -record(state, {
-          name = undefined :: barile:task_name() | undefined,
-          schedule :: barile:schedule(),
-          detail :: barile:detail()
+          name     = undefined   :: barile:task_name(),
+          schedule = undefined   :: barile:schedule(),
+          detail   = undefined   :: barile:detail(),
+          command  = ""          :: term(),
+          status   = inactivated :: inactivated | activated 
          }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
-execute(Cmd) ->
-    execute_cmd(Cmd).
+-spec inactivate(pid()) -> term().
+inactivate(Pid) -> 
+    gen_server:call(Pid, {inactivate}).
+
+-spec activate(pid()) -> term().
+activate(Pid) -> 
+    gen_server:call(Pid, {activate}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -65,7 +74,8 @@ start_link(Name, Schedule, Detail) ->
 %% @end
 %%--------------------------------------------------------------------
 init([Name, Schedule, Detail]) ->
-    {ok, #state{ name = Name, schedule = Schedule, detail = Detail }}.
+    erlang:send_after(1000, self(), trigger_task),
+    {ok, #state{ name = Name, schedule = Schedule, detail = Detail, status = inactivated }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -81,9 +91,13 @@ init([Name, Schedule, Detail]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_call({activate}, _From, State) ->
+    {reply, Reply, State#state{ status = activated }};
+handle_call({inactivate}, _From, State) ->
+    {reply, Reply, State#state{ status = inactivated }};
 handle_call(_Request, _From, State) ->
-        Reply = ok,
-        {reply, Reply, State}.
+    Reply = ok,
+    {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -108,8 +122,21 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_info(trigger_task, State = #state{ name = Name, status = inactivated }) ->
+    lager:debug("Not Activated Task: ~ts", [Name]),
+    {noreply, State};
+handle_info(trigger_task, State = #state{ status = activated, command = Cmd }) ->
+    %% TODO: need notice result to barile server?
+    %% TODO: schedule checkes
+    case execute_cmd(Cmd) of
+        {ok, Output} ->
+            lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]);
+        {Reason, Output} ->
+            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output]);
+    end,
+    {noreply, State};
 handle_info(_Info, State) ->
-        {noreply, State}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -139,7 +166,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 execute_cmd(Cmd) ->
     lager:debug("Starting task command: ~ts", [Cmd]),
     try erlang:open_port({spawn, Cmd}, [exit_status, stderr_to_stdout, binary, stream]) of
