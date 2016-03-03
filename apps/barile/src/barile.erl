@@ -15,7 +15,7 @@
 
 %% API
 -export([start_link/0,
-         add_task/3,
+         add_task/4,
          cancel_task/1,
          show_schedule/1,
          show_schedules/0,
@@ -57,9 +57,12 @@
 %%%
 %%% @spec add_task(task_name()) -> term()
 %%% @end
--spec add_task(task_name(), schedule(), detail()) -> term().
-add_task(Task, Schedule, Detail) -> 
-    gen_server:call(?SERVER, {add, Task, Schedule, Detail}).
+-spec add_task(task_name(), term(), schedule(), detail()) -> term().
+add_task(_Task, "", _Schedule, _Detail) -> 
+    lager:debug("Command is empty"),
+    invalid_command;
+add_task(Task, Command, Schedule, Detail) -> 
+    gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
 
 %%% @doc
 %%% Cancels the task
@@ -191,7 +194,7 @@ handle_call({show, TaskName}, _From, State) ->
         error -> 
             {reply, {TaskName, not_found}, State};
         {ok, Task} ->
-            {reply, {TaskName, format_schedule({TaskName, Task})}, State}
+            {reply, {TaskName, format_task({TaskName, Task})}, State}
     end;
 handle_call({members}, _From, State) ->
     {reply, dict:to_list(State#state.nodes), State};
@@ -267,7 +270,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 -spec format_tasks([task()]) -> binary().
 format_tasks(Tasks) ->
     lists:foldl(fun(X, Acc) -> Line = format_task(X),

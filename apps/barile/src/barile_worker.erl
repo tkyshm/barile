@@ -128,12 +128,13 @@ handle_info(trigger_task, State = #state{ name = Name, status = Status }) when S
 handle_info(trigger_task, State = #state{ name = Name, status = Status, command = Cmd }) when Status =:= activated ->
     %% TODO: need notice result to barile server?
     %% TODO: schedule checkes
+    lager:debug("Activated Task: ~ts", [Name]),
     case execute_cmd(Cmd) of
         {ok, Output} ->
             lager:debug("Succeed to execute command( ~p ): ~p", [State#state.command, Output]),
             {noreply, State};
         {Reason, Output} ->
-            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output])
+            lager:error("Failed to execute command( ~p ): ~p", [State#state.command, Output]),
             {noreply, State}
     end;
 handle_info(_Info, State) ->
