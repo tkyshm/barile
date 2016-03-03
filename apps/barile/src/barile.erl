@@ -38,13 +38,14 @@
 
 -record(state, {
           nodes = dict:new() :: dict:dict(node(), node_status()),
-          tasks = dict:new() :: dict:dict(task_name(), {schedule(), detail()})
+          tasks = dict:new() :: dict:dict(task_name(), {pid(), command(), schedule(), detail()})
          }).
 
 -type task_name() :: binary().
 %% TODO: specifies the proprietary schedule time format.
 -type schedule() :: term().
 -type detail() :: binary().
+-type command() :: term().
 -type task() :: {task_name(), {schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
@@ -168,17 +169,23 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add, TaskName, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
-    %% TODO: receive a message from task worker
-    NewTasks = dict:store(TaskName, {Schedule, Detail}, Tasks),
-    lager:info("adds a task: {~p, ~p, ~p}", [TaskName, Schedule, Detail]),
-    {reply, ok, State#state{ tasks = NewTasks }};
+handle_call({add, TaskName, Command, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
+    case supervisor:start_child('barile_worker', [TaskName, Schedule, Detail]) of
+        {ok, Pid} ->
+            %% TODO: receive a message from task worker
+            NewTasks = dict:store(TaskName, {Pid, Command, Schedule, Detail}, Tasks),
+            lager:info("adds a task: {~p, ~p, ~p, ~p, ~p}", [TaskName, Pid, Command, Schedule, Detail]),
+            barile_worker:activate(Pid),
+            {reply, ok, State#state{ tasks = NewTasks }};
+        {error, Reason} ->
+            {stop, Reason, State} 
+    end;
 handle_call({cancel, TaskName}, _From, State) ->
     %% TODO: receive a message from task worker
     NewTasks = dict:erase(TaskName, State#state.tasks),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
-    {reply, format_schedules(dict:to_list(State#state.tasks)), State};
+    {reply, format_tasks(dict:to_list(State#state.tasks)), State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
@@ -204,7 +211,6 @@ handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
            {reply, ok, State#state{ nodes = NewNodes }}
     end;
 handle_call(Request, _From, State) ->
-    lager:info("test"),
     {reply, {Request, bad_request}, State}.
 
 %%--------------------------------------------------------------------
@@ -218,7 +224,6 @@ handle_call(Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast(_Msg, State) ->
-    lager:info("test"),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -263,12 +268,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
--spec format_schedules([task()]) -> binary().
-format_schedules(Tasks) ->
-    lists:foldl(fun(X, Acc) -> Line = format_schedule(X),
+-spec format_tasks([task()]) -> binary().
+format_tasks(Tasks) ->
+    lists:foldl(fun(X, Acc) -> Line = format_task(X),
                                << Acc/binary, Line/binary >>
                 end, <<>>, Tasks). 
 
--spec format_schedule(task()) -> binary().
-format_schedule({TaskName, {Schedule, Detail}}) ->
+-spec format_task(task()) -> binary().
+format_task({TaskName, {Schedule, Detail}}) ->
     <<TaskName/binary, "\t\t", Schedule/binary, "\t\t", Detail/binary, "\n">>.
