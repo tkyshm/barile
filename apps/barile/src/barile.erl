@@ -15,7 +15,9 @@
 
 %% API
 -export([start_link/0,
+         add_task/1,
          add_task/4,
+         file/1,
          activate_task/1,
          deactivate_task/1,
          cancel_task/1,
@@ -45,7 +47,13 @@
 
 -type task_name() :: binary().
 %% TODO: specifies the proprietary schedule time format.
--type schedule() :: term().
+%% @doc 
+%% {[integer()],[integer()],[integer()], integer()} : {[hour],[]}.
+-type hour() :: integer().
+-type minite() :: integer().
+-type day() :: integer().
+-type period() :: integer().
+-type schedule() :: {[hour()],[minite()],[day()], period()}.
 -type detail() :: binary().
 -type command() :: term().
 -type task() :: {task_name(), {command(), schedule(), detail()}}.
@@ -65,6 +73,16 @@ add_task(_Task, "", _Schedule, _Detail) ->
     invalid_command;
 add_task(Task, Command, Schedule, Detail) -> 
     gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
+
+-spec add_task(task()) -> term().
+add_task({Task, Command, Schedule, Detail}) -> 
+    gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
+
+-spec file(binary()|string()) -> [task()].
+file(Filename) ->
+    {ok, L} = etoml:file(Filename),
+    Tasks = toml_to_tasks(L),
+    lists:foreach(fun(X) -> add_task(X) end, Tasks).
 
 %%% @doc
 %%% Activates task
@@ -302,9 +320,53 @@ code_change(_OldVsn, State, _Extra) ->
 -spec format_tasks([task()]) -> binary().
 format_tasks(Tasks) ->
     lists:foldl(fun(X, Acc) -> Line = format_task(X),
-                               << Acc/binary, Line/binary >>
-                end, <<>>, Tasks). 
+        << Acc/binary, Line/binary >>
+    end, <<>>, Tasks). 
 
 -spec format_task(task()) -> binary().
 format_task({TaskName, {_Pid, _Cmd, Schedule, Detail}}) ->
-    <<TaskName/binary, "\t\t", Schedule/binary, "\t\t", Detail/binary, "\n">>.
+    SchBin = format_schedule(Schedule),
+    <<TaskName/binary, "\t", SchBin/binary, "\t", Detail/binary, "\n">>.
+
+-spec format_schedule(schedule()) -> binary().
+format_schedule({Hour, Min, Day, Period}) ->
+    HourBin = timeunit_foldl(Hour),
+    MinBin  = timeunit_foldl(Min),
+    DayBin  = timeunit_foldl(Day),
+    PeriBin = erlang:integer_to_binary(Period),
+    <<HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " " ,PeriBin/binary>>.
+
+-spec timeunit_foldl([hour()]|[minite()]|[day()], binary()) -> binary().
+timeunit_foldl([], Acc) ->
+    Acc;
+timeunit_foldl([X|List], Acc) ->
+    XB = erlang:integer_to_binary(X),
+    timeunit_foldl(List, << Acc/binary,",",XB/binary >>).
+
+-spec timeunit_foldl([hour()]|[minite()]|[day()]) -> binary().
+timeunit_foldl([]) ->
+    <<>>;
+timeunit_foldl([H|List]) ->
+    HB = erlang:integer_to_binary(H),
+    timeunit_foldl(List, HB).
+
+-spec toml_to_tasks([term()]) -> [task()].
+toml_to_tasks(L) ->
+    TaskNames = proplists:get_keys(L),
+    lists:foldl(fun(Key, Acc) ->
+        Item = proplists:get_value(Key, L),
+        try
+            Day    = proplists:get_value(<<"day">>, Item),
+            Min    = proplists:get_value(<<"min">>, Item),
+            Hour   = proplists:get_value(<<"hour">>, Item),
+            Period = proplists:get_value(<<"period">>, Item),
+
+            Command  = proplists:get_value(<<"command">>, Item),
+            Schedule = {Hour, Min, Day, Period},
+            Detail   = proplists:get_value(<<"detail">>, Item),
+
+            [ {Key, Command, Schedule, Detail} | Acc ]
+        catch
+            throw:Error -> lager:error("~p",[Error])
+        end
+    end,[], TaskNames).

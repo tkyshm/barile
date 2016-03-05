@@ -1,0 +1,16 @@
+# This is definition of tasks for barile
+[my_task1]
+command = "./test.sh" 
+detail = "テストスケジュールタスク" 
+hour = [10,16]  
+min = [27,47]
+day = [1,2,3,4,5]
+period = 15
+
+[my_task2]
+command = "./test.sh" 
+detail = "テストスケジュールタスク" 
+hour = [8]  
+min = [27]
+day = []
+period = 15
