@@ -136,11 +136,14 @@ show_schedule(Task) ->
 %%% @end
 -spec show_schedules() -> term().
 show_schedules() -> 
-    Bins = gen_server:call(?SERVER, {show, all}),
+    Tasks = gen_server:call(?SERVER, {show, all}),
     %% TODO: delete theses prints in future. This output is for debug on erlang shell.
-    io:format("[task_name]\t[schedule]\t[description]\n"),
-    io:format("~ts",[Bins]),
-    Bins.
+    io:format("--------------------------------------------------------------------------------------\n"),
+    io:format("  Schedules\n"),
+    io:format("--------------------------------------------------------------------------------------\n"),
+    io:format("~ts",[format_tasks(Tasks)]),
+    lager:info("~ts", [Tasks]),
+    format_tasks(Tasks).
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -226,7 +229,7 @@ handle_call({cancel, TaskName}, _From, State) ->
     NewTasks = dict:erase(TaskName, State#state.tasks),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
-    {reply, format_tasks(dict:to_list(State#state.tasks)), State};
+    {reply, dict:to_list(State#state.tasks), State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
@@ -334,7 +337,7 @@ format_schedule({Hour, Min, Day, Period}) ->
     MinBin  = timeunit_foldl(Min),
     DayBin  = timeunit_foldl(Day),
     PeriBin = erlang:integer_to_binary(Period),
-    <<HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " " ,PeriBin/binary>>.
+    <<"[ ", HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " period:" ,PeriBin/binary, "min ]">>.
 
 -spec timeunit_foldl([hour()]|[minite()]|[day()], binary()) -> binary().
 timeunit_foldl([], Acc) ->
@@ -345,7 +348,7 @@ timeunit_foldl([X|List], Acc) ->
 
 -spec timeunit_foldl([hour()]|[minite()]|[day()]) -> binary().
 timeunit_foldl([]) ->
-    <<>>;
+    <<"all_day">>;
 timeunit_foldl([H|List]) ->
     HB = erlang:integer_to_binary(H),
     timeunit_foldl(List, HB).
@@ -369,4 +372,4 @@ toml_to_tasks(L) ->
         catch
             throw:Error -> lager:error("~p",[Error])
         end
-    end,[], TaskNames).
+    end, [], TaskNames).
