@@ -28,10 +28,10 @@
          load_config/1
         ]).
 
--include_lib("proper/include/proper.hrl").
+%-include_lib("proper/include/proper.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(PROPTEST(M,F), true = proper:quickcheck(M:F())).
+%-define(PROPTEST(M,F), true = proper:quickcheck(M:F())).
 
 all() ->
     [
@@ -98,10 +98,11 @@ end_per_testcase(_TestCase, _Config) ->
 add_task_test(_Config) ->
     Sch = {[10,11], [20,30], [], 15},
     barile:add_task(<<"task1">>, <<"./test/scripts/test.sh">>, Sch, <<"detail 1">>),
-    <<"task1\t[ 10,11:20,30 all_day period:15min ]\tdetail 1\n">> = barile:show_schedule(<<"task1">>).
+    ct:pal( "~p~n",[ barile:show_schedule(<<"task1">>) ]),
+    { _, <<"./test/scripts/test.sh">>, Sch, <<"detail 1">> } = barile:show_schedule(<<"task1">>).
 
 load_config(Config) ->
     {_, DataDir} = lists:keyfind(data_dir, 1, Config),
     barile:file(DataDir ++ "test.toml"),
-    B = <<"task1\t[ 10,11:20,30 all_day period:15min ]\tdetail 1\nmy_task2\t[ 8:27 all_day period:15min ]\tTest schedule 2\nmy_task1\t[ 10,16:27,47 1,2,3,4,5 period:15min ]\tTest schedule 1\n">>,
-    B = barile:show_schedules().
+    %B = <<"task1\t[ 10,11:20,30 all_day period:15min ]\tdetail 1\nmy_task2\t[ 8:27 all_day period:15min ]\tTest schedule 2\nmy_task1\t[ 10,16:27,47 1,2,3,4,5 period:15min ]\tTest schedule 1\n">>,
+    _Tasks = barile:show_schedules().
