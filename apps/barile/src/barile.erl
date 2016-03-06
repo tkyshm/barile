@@ -119,15 +119,13 @@ cancel_task(Task) ->
 %%% @spec show_schedule(task_name()) -> term().
 %%% @end
 -spec show_schedule(binary()) -> term().
-show_schedule(Task) -> 
-    case gen_server:call(?SERVER, {show, Task}) of
-        {_TaskName, not_found} ->
+show_schedule(TaskName) -> 
+    case gen_server:call(?SERVER, {show, TaskName}) of
+        { _TaskName, not_found } ->
             not_found_task;
-        %Task = {_TaskName, {_Schedule, _Detail}} ->
-        {_TaskName, Bin } ->
+        { TaskName, Task } ->
             %% TODO: delete theses prints in future. This output is for debug on erlang shell.
-            io:format("~ts", [Bin]),
-            Bin
+            Task
     end.
 
 %%% @doc
@@ -137,13 +135,12 @@ show_schedule(Task) ->
 %%% @end
 -spec show_schedules() -> term().
 show_schedules() -> 
-    Bins = gen_server:call(?SERVER, {show, all}),
+    Tasks = gen_server:call(?SERVER, {show, all}),
     %% TODO: delete theses prints in future. This output is for debug on erlang shell.
     io:format("--------------------------------------------------------------------------------------\n"),
     io:format("  Schedules\n"),
     io:format("--------------------------------------------------------------------------------------\n"),
-    io:format("~ts",[Bins]),
-    Bins.
+    Tasks.
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -229,13 +226,14 @@ handle_call({cancel, TaskName}, _From, State) ->
     NewTasks = dict:erase(TaskName, State#state.tasks),
     {reply, ok, State#state{ tasks = NewTasks }};
 handle_call({show, all}, _From, State) ->
-    {reply, format_tasks(dict:to_list(State#state.tasks)), State};
+    {reply, dict:to_list(State#state.tasks), State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
             {reply, {TaskName, not_found}, State};
         {ok, Task} ->
-            {reply, {TaskName, format_task({TaskName, Task})}, State}
+            lager:info( "~p", [ Task ] ),
+            {reply, {TaskName, Task}, State}
     end;
 handle_call({members}, _From, State) ->
     {reply, dict:to_list(State#state.nodes), State};
@@ -320,38 +318,40 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec format_tasks([task()]) -> binary().
-format_tasks(Tasks) ->
-    lists:foldl(fun(X, Acc) -> Line = format_task(X),
-        << Acc/binary, Line/binary >>
-    end, <<>>, Tasks). 
 
--spec format_task(task()) -> binary().
-format_task({TaskName, {_Pid, _Cmd, Schedule, Detail}}) ->
-    SchBin = format_schedule(Schedule),
-    <<TaskName/binary, "\t", SchBin/binary, "\t", Detail/binary, "\n">>.
-
--spec format_schedule(schedule()) -> binary().
-format_schedule({Hour, Min, Day, Period}) ->
-    HourBin = timeunit_foldl(Hour),
-    MinBin  = timeunit_foldl(Min),
-    DayBin  = timeunit_foldl(Day),
-    PeriBin = erlang:integer_to_binary(Period),
-    <<"[ ", HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " period:" ,PeriBin/binary, "min ]">>.
-
--spec timeunit_foldl([hour()]|[minite()]|[day()], binary()) -> binary().
-timeunit_foldl([], Acc) ->
-    Acc;
-timeunit_foldl([X|List], Acc) ->
-    XB = erlang:integer_to_binary(X),
-    timeunit_foldl(List, << Acc/binary,",",XB/binary >>).
-
--spec timeunit_foldl([hour()]|[minite()]|[day()]) -> binary().
-timeunit_foldl([]) ->
-    <<"all_day">>;
-timeunit_foldl([H|List]) ->
-    HB = erlang:integer_to_binary(H),
-    timeunit_foldl(List, HB).
+%% TODO: transfer to escript
+%%-spec format_tasks([task()]) -> binary().
+%%format_tasks(Tasks) ->
+%%    lists:foldl(fun(X, Acc) -> Line = format_task(X),
+%%        << Acc/binary, Line/binary >>
+%%    end, <<>>, Tasks). 
+%%
+%%-spec format_task(task()) -> binary().
+%%format_task({TaskName, {_Pid, _Cmd, Schedule, Detail}}) ->
+%%    SchBin = format_schedule(Schedule),
+%%    <<TaskName/binary, "\t", SchBin/binary, "\t", Detail/binary, "\n">>.
+%%
+%%-spec format_schedule(schedule()) -> binary().
+%%format_schedule({Hour, Min, Day, Period}) ->
+%%    HourBin = timeunit_foldl(Hour),
+%%    MinBin  = timeunit_foldl(Min),
+%%    DayBin  = timeunit_foldl(Day),
+%%    PeriBin = erlang:integer_to_binary(Period),
+%%    <<"[ ", HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " period:" ,PeriBin/binary, "min ]">>.
+%%
+%%-spec timeunit_foldl([hour()]|[minite()]|[day()], binary()) -> binary().
+%%timeunit_foldl([], Acc) ->
+%%    Acc;
+%%timeunit_foldl([X|List], Acc) ->
+%%    XB = erlang:integer_to_binary(X),
+%%    timeunit_foldl(List, << Acc/binary,",",XB/binary >>).
+%%
+%%-spec timeunit_foldl([hour()]|[minite()]|[day()]) -> binary().
+%%timeunit_foldl([]) ->
+%%    <<"all_day">>;
+%%timeunit_foldl([H|List]) ->
+%%    HB = erlang:integer_to_binary(H),
+%%    timeunit_foldl(List, HB).
 
 -spec toml_to_tasks([term()]) -> [task()].
 toml_to_tasks(L) ->
