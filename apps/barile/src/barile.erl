@@ -318,7 +318,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 %% TODO: transfer to escript
 %%-spec format_tasks([task()]) -> binary().
 %%format_tasks(Tasks) ->
@@ -352,11 +351,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%timeunit_foldl([H|List]) ->
 %%    HB = erlang:integer_to_binary(H),
 %%    timeunit_foldl(List, HB).
-
 -spec toml_to_tasks([term()]) -> [task()].
 toml_to_tasks(L) ->
     TaskNames = proplists:get_keys(L),
-    lists:foldr(fun(Key, Acc) ->
+    lists:foldl(fun(Key, Acc) ->
         Item = proplists:get_value(Key, L),
         try
             Day    = proplists:get_value(<<"day">>, Item),
