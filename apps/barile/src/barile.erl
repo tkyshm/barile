@@ -20,7 +20,7 @@
          file/1,
          activate_task/1,
          deactivate_task/1,
-         cancel_task/1,
+         delete_task/1,
          show_schedule/1,
          show_schedules/0,
          members/0,
@@ -49,14 +49,14 @@
 %% TODO: specifies the proprietary schedule time format.
 %% @doc 
 %% {[integer()],[integer()],[integer()], integer()} : {[hour],[]}.
--type hour() :: integer().
--type minite() :: integer().
--type day() :: integer().
--type period() :: integer().
--type schedule() :: {[hour()],[minite()],[day()], period()}.
--type detail() :: binary().
--type command() :: term().
--type task() :: {task_name(), {command(), schedule(), detail()}}.
+-type hour()        :: integer().
+-type minite()      :: integer().
+-type day()         :: integer().
+-type month()       :: integer().
+-type schedule()    :: {[hour()],[minite()],[day()], [month()]}.
+-type detail()      :: binary().
+-type command()     :: term().
+-type task()        :: {task_name(), {command(), schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
@@ -109,9 +109,9 @@ deactivate_task(TaskName) ->
 %%%
 %%% @spec cancel_task(task_name()) -> term().
 %%% @end
--spec cancel_task(task_name()) -> term().
-cancel_task(Task) -> 
-    gen_server:call(?SERVER, {cancel, Task}).
+-spec delete_task(task_name()) -> term().
+delete_task(Task) -> 
+    gen_server:call(?SERVER, {delete, Task}).
 
 %%% @doc
 %%% Shows the registered schedule of the task.
@@ -214,19 +214,34 @@ init([]) ->
 handle_call({add, TaskName, Command, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
     case supervisor:start_child('barile_worker_sup', [TaskName, Command, Schedule, Detail]) of
         {ok, Pid} ->
-            %% TODO: receive a message from task worker
             NewTasks = dict:store(TaskName, {Pid, Command, Schedule, Detail}, Tasks),
-            lager:info("adds a task: {~p, ~p, ~p, ~p, ~p}", [TaskName, Pid, Command, Schedule, Detail]),
+            lager:info("Adds a task: {~p, ~p, ~p, ~p, ~p}", [TaskName, Pid, Command, Schedule, Detail]),
             {reply, ok, State#state{ tasks = NewTasks }};
         {error, Reason} ->
             {stop, Reason, State} 
     end;
-handle_call({cancel, TaskName}, _From, State) ->
-    %% TODO: receive a message from task worker
-    NewTasks = dict:erase(TaskName, State#state.tasks),
-    {reply, ok, State#state{ tasks = NewTasks }};
+handle_call({delete, TaskName}, _From, State) ->
+    case dict:find(TaskName, State#state.tasks) of
+        error ->
+            {reply, {TaskName, not_found}, State}; 
+        {ok, {Pid, _Cmd, _Schedule, _Detail}} ->
+            barile_worker:deactivate(Pid),
+            NewTasks = dict:erase(TaskName, State#state.tasks),
+            {reply, ok, State#state{ tasks = NewTasks }}
+    end;
 handle_call({show, all}, _From, State) ->
-    {reply, dict:to_list(State#state.tasks), State};
+    List = lists:map(fun({T, {P, C, Sch, Det}}) -> 
+                             Status = barile_worker:get_status(P),
+                            [
+                             {task_name, T}
+                             , {status, Status}
+                             , {pid, P}
+                             , {command, C}
+                             , {schedule, Sch}
+                             , {detail, Det}
+                            ]
+                     end, dict:to_list(State#state.tasks)),
+    {reply, List, State};
 handle_call({show, TaskName}, _From, State) ->
     case dict:find(TaskName, State#state.tasks) of
         error -> 
@@ -357,13 +372,13 @@ toml_to_tasks(L) ->
     lists:foldl(fun(Key, Acc) ->
         Item = proplists:get_value(Key, L),
         try
-            Day    = proplists:get_value(<<"day">>, Item),
-            Min    = proplists:get_value(<<"min">>, Item),
-            Hour   = proplists:get_value(<<"hour">>, Item),
-            Period = proplists:get_value(<<"period">>, Item),
+            Day   = proplists:get_value(<<"day">>, Item),
+            Min   = proplists:get_value(<<"min">>, Item),
+            Hour  = proplists:get_value(<<"hour">>, Item),
+            Month = proplists:get_value(<<"month">>, Item),
 
             Command  = proplists:get_value(<<"command">>, Item),
-            Schedule = {Hour, Min, Day, Period},
+            Schedule = {Hour, Min, Day, Month},
             Detail   = proplists:get_value(<<"detail">>, Item),
 
             [ {Key, Command, Schedule, Detail} | Acc ]

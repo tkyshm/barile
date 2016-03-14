@@ -13,7 +13,8 @@
 %% API
 -export([start_link/4,
          deactivate/1,
-         activate/1
+         activate/1,
+         get_status/1
         ]).
 
 %% gen_server callbacks
@@ -48,6 +49,10 @@ deactivate(Pid) ->
 -spec activate(pid()) -> term().
 activate(Pid) -> 
     gen_server:call(Pid, {activate}).
+
+-spec get_status(pid()) -> term().
+get_status(Pid) ->
+    gen_server:call(Pid, {get_status}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -93,6 +98,8 @@ init([Name, Command, Schedule, Detail]) ->
 %%--------------------------------------------------------------------
 handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= inactivated ->
     lager:info("~p Activating...", [Name]),
+    {{Y, M, D}, {_, _, _}} = calendar:local_time(),
+    {{Y, M, D}, { , , }}
     erlang:send_after(?INIT_AFTER_SEND_TIME, self(), trigger_task), %% after execute wait sufficient time. 
     {reply, ok, State#state{ status = activated }};
 handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= activated ->
@@ -106,9 +113,10 @@ handle_call({deactivate}, _From, State = #state{ name = Name, status = Status })
     {reply, already_inactivated, State};
 handle_call({inactivate}, _From, State) ->
     {reply, ok, State#state{ status = inactivated }};
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+handle_call({get_status}, _From, State) -> 
+    {reply, State#state.status, State};
+handle_call(_Request, _From, State) -> 
+    {reply, ok, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -180,6 +188,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+-spec execute_cmd(binary()|string()) -> {ok, binary()} | {exit_error, binary()} | {port_error, binary()}. 
 execute_cmd(Cmd) ->
     lager:debug("Starting task command: ~ts", [Cmd]),
     try erlang:open_port({spawn, Cmd}, [exit_status, stderr_to_stdout, binary, stream]) of
@@ -199,11 +208,12 @@ execute_cmd(Cmd) ->
             start_error
     end.
 
+-spec loop(port(), binary()) -> {ok, binary()} | {exit_error, binary()} | {port_error, binary()}.
 loop(Port, Output) ->
     receive
         {Port, {data, Data}} ->
             lager:debug("Task output: ~ts from ~p", [Data, Port]),
-            loop(Port,<<Output/binary, Data/binary>>);
+            loop(Port, <<Output/binary, Data/binary>>);
         {Port, {exit_status, 0}} ->
             lager:debug("Finished successfully from ~p", [Port]),
             {ok, Output};
