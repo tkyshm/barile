@@ -98,8 +98,8 @@ init([Name, Command, Schedule, Detail]) ->
 %%--------------------------------------------------------------------
 handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= inactivated ->
     lager:info("~p Activating...", [Name]),
-    {{Y, M, D}, {_, _, _}} = calendar:local_time(),
-    {{Y, M, D}, { , , }}
+    %{{Y, M, D}, {_, _, _}} = calendar:local_time(),
+    %{{Y, M, D}, { , , }}
     erlang:send_after(?INIT_AFTER_SEND_TIME, self(), trigger_task), %% after execute wait sufficient time. 
     {reply, ok, State#state{ status = activated }};
 handle_call({activate}, _From, State = #state{ name = Name, status = Status }) when Status =:= activated ->
