@@ -33,3 +33,5 @@ TODO: 英語で概要を書く
     1. erlangからosのプロセスの状態を見ることができるかどうか
     1. osプロセスの実行結果を流して受け取ることができるかどうか
     1. erlangからosプロセスを停止、終了の確認がとれるかどうか
+    
+  - 参考: http://erlang.org/doc/tutorial/c_port.html
