@@ -5,8 +5,8 @@
   {mod, {'barile_app', []}},
   {applications,
    [kernel,
-    stdlib,
-    lager
+	stdlib,
+	yamerl
    ]},
   {env,[]},
   {modules, []},

@@ -2,7 +2,7 @@
 %%% @author tkyshm
 %%% @copyright (C) 2016, tkyshm
 %%% @doc
-%%% barile is a middleware to schedules and execute any tasks.
+%%% barile is a middleware to schedules and execute any jobs.
 %%% barile's goal is a alternative for 'cron' more easy to scale out
 %%% and to establish high availavility batch systems.
 %%%
@@ -15,103 +15,97 @@
 
 %% API
 -export([start_link/0,
-         add_task/1,
-         add_task/4,
-         file/1,
-         activate_task/1,
-         deactivate_task/1,
-         delete_task/1,
-         show_schedule/1,
-         show_schedules/0,
-         members/0,
-         join_node/1,
-         leave_node/1
-        ]).
+		 add_job/1,
+		 file/1,
+		 activate_job/1,
+		 deactivate_job/1,
+		 delete_job/1,
+		 show_schedule/1,
+		 show_schedules/0,
+		 members/0,
+		 join_node/1,
+		 leave_node/1
+		]).
 
 %% gen_server callbacks
 -export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
-
--compile([{parse_transform, lager_transform}]).
+		 handle_call/3,
+		 handle_cast/2,
+		 handle_info/2,
+		 terminate/2,
+		 code_change/3]).
 
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          nodes = dict:new() :: dict:dict(node(), node_status()),
-          tasks = dict:new() :: dict:dict(task_name(), {pid(), command(), schedule(), detail()})
-         }).
+		  nodes = dict:new() :: dict:dict(node(), node_status()),
+		  jobs  = dict:new() :: dict:dict(job_name(), {pid(), job()})
+		 }).
 
--type task_name() :: binary().
-%% TODO: specifies the proprietary schedule time format.
-%% @doc 
-%% {[integer()],[integer()],[integer()], integer()} : {[hour],[]}.
--type hour()        :: integer().
--type minite()      :: integer().
--type day()         :: integer().
--type month()       :: integer().
--type schedule()    :: {[hour()],[minite()],[day()], [month()]}.
--type detail()      :: binary().
+-type job()         :: {job_name(), detail(), schedule(), [task()], [env_var()]}.
+-type job_name()    :: binary() | term().
+-type detail()      :: binary() | term().
+-type schedule()    :: binary() | term().
+-type task()        :: {task_name(), command()}.
+-type env_var()     :: term().
+-type task_name()   :: binary().
 -type command()     :: term().
--type task()        :: {task_name(), {command(), schedule(), detail()}}.
 -type node_status() :: joined | lost | joinning | leaving.
 
 %%%===================================================================
 %%% API
 %%%===================================================================
+
 %%% @doc
 %%% Adds some user's task based on schedule
 %%%
 %%% @spec add_task(task_name()) -> term()
 %%% @end
--spec add_task(task_name(), term(), schedule(), detail()) -> term().
-add_task(_Task, "", _Schedule, _Detail) -> 
-    lager:debug("Command is empty"),
-    invalid_command;
-add_task(Task, Command, Schedule, Detail) -> 
-    gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
+-spec add_job(job()) -> term().
+add_job(Job) ->
+	error_logger:info_msg("Add a job: ~p", [Job]),
+	gen_server:call(?SERVER, {add_job, Job}).
 
--spec add_task(task()) -> term().
-add_task({Task, Command, Schedule, Detail}) -> 
-    gen_server:call(?SERVER, {add, Task, Command, Schedule, Detail}).
-
+%%% @doc
+%%% Set job schedules from yaml file
+%%%
+%%% @spec file(binary()|string()) -> [task()]
+%%% @end
 -spec file(binary()|string()) -> [task()].
+file(Filename) when is_binary(Filename) ->
+	file(binary_to_term(Filename));
 file(Filename) ->
-    {ok, L} = etoml:file(Filename),
-    Tasks = toml_to_tasks(L),
-    lager:info("~p", [Tasks]),
-    lists:foreach(fun(X) -> add_task(X) end, Tasks).
+	[L] = yamerl_constr:file(Filename),
+	Job = yaml_to_jobs(L),
+	error_logger:info_msg("~p", [Job]),
+	add_job(Job).
 
 %%% @doc
-%%% Activates task
+%%% Activates job
 %%%
 %%% @spec activate_task(task_name()) -> term()
 %%% @end
--spec activate_task(task_name()) -> term().
-activate_task(TaskName) -> 
-    gen_server:call(?SERVER, {activate, TaskName}).
-
+-spec activate_job(task_name()) -> term().
+activate_job(JobName) ->
+	gen_server:call(?SERVER, {activate, JobName}).
 
 %%% @doc
-%%% Activates task
+%%% Deactivates job
 %%%
 %%% @spec activate_task(task_name()) -> term()
 %%% @end
--spec deactivate_task(task_name()) -> term().
-deactivate_task(TaskName) -> 
-    gen_server:call(?SERVER, {deactivate, TaskName}).
+-spec deactivate_job(task_name()) -> term().
+deactivate_job(JobName) ->
+	gen_server:call(?SERVER, {deactivate, JobName}).
 
 %%% @doc
 %%% Cancels the task
 %%%
 %%% @spec cancel_task(task_name()) -> term().
 %%% @end
--spec delete_task(task_name()) -> term().
-delete_task(Task) -> 
-    gen_server:call(?SERVER, {delete, Task}).
+-spec delete_job(task_name()) -> term().
+delete_job(JobName) ->
+	gen_server:call(?SERVER, {delete_job, JobName}).
 
 %%% @doc
 %%% Shows the registered schedule of the task.
@@ -119,28 +113,35 @@ delete_task(Task) ->
 %%% @spec show_schedule(task_name()) -> term().
 %%% @end
 -spec show_schedule(binary()) -> term().
-show_schedule(TaskName) -> 
-    case gen_server:call(?SERVER, {show, TaskName}) of
-        { _TaskName, not_found } ->
-            not_found_task;
-        { TaskName, Task } ->
-            %% TODO: delete theses prints in future. This output is for debug on erlang shell.
-            Task
-    end.
+show_schedule(JobName) ->
+	case gen_server:call(?SERVER, {show, JobName}) of
+		{_Name, not_found} ->
+			not_found_job;
+		{JobName, Task} ->
+			%% TODO: delete theses prints in future. This output is for debug on erlang shell.
+			Task
+	end.
 
 %%% @doc
-%%% Shows schedules of all tasks.
+%%% Shows schedules of all jobs.
 %%%
 %%% @spec show_schedules() -> term().
 %%% @end
 -spec show_schedules() -> term().
-show_schedules() -> 
-    Tasks = gen_server:call(?SERVER, {show, all}),
-    %% TODO: delete theses prints in future. This output is for debug on erlang shell.
-    io:format("--------------------------------------------------------------------------------------\n"),
-    io:format("  Schedules\n"),
-    io:format("--------------------------------------------------------------------------------------\n"),
-    Tasks.
+show_schedules() ->
+	Tasks = gen_server:call(?SERVER, {show, all}),
+	%% TODO: delete theses prints in future. This output is for debug on erlang shell.
+	io:format("-----------------------------------------------------------------------------------------------------------------------------------\n"),
+	io:format("  Schedules\n"),
+	io:format("-----------------------------------------------------------------------------------------------------------------------------------\n"),
+	lists:foreach(fun(Row) ->
+						  Pid      = proplists:get_value(pid,      Row),
+						  JobName  = proplists:get_value(job_name, Row),
+						  Status   = proplists:get_value(status,   Row),
+						  Schedule = proplists:get_value(schedule, Row),
+						  Detail   = proplists:get_value(detail,   Row),
+						  io:format("~8p | ~-18ts | ~12p | ~-12ts | ~-24ts~n", [Pid, JobName, Status, Schedule, Detail])
+				  end, Tasks).
 
 %%% @doc
 %%% Lists up members of distributed nodes.
@@ -148,8 +149,8 @@ show_schedules() ->
 %%% @spec members() -> term().
 %%% @end
 -spec members() -> [term()].
-members() -> 
-    gen_server:call(?SERVER, {members}).
+members() ->
+	gen_server:call(?SERVER, {members}).
 
 %%% @doc
 %%% Joins a node as barile members.
@@ -157,8 +158,8 @@ members() ->
 %%% @spec members() -> term().
 %%% @end
 -spec join_node(atom()) -> term().
-join_node(Node) -> 
-    gen_server:call(?SERVER, {join, Node}).
+join_node(Node) ->
+	gen_server:call(?SERVER, {join, Node}).
 
 %%% @doc
 %%% Leaves a node from barile members.
@@ -166,8 +167,8 @@ join_node(Node) ->
 %%% @spec members() -> term().
 %%% @end
 -spec leave_node(atom()) -> term().
-leave_node(Node) -> 
-    gen_server:call(?SERVER, {leave, Node}).
+leave_node(Node) ->
+	gen_server:call(?SERVER, {leave, Node}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -177,7 +178,7 @@ leave_node(Node) ->
 %% @end
 %%--------------------------------------------------------------------
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+	gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -195,7 +196,7 @@ start_link() ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-    {ok, #state{ nodes = dict:store(node(), join, dict:new()) }}.
+	{ok, #state{ nodes = dict:store(node(), join, dict:new()) }}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -211,73 +212,77 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({add, TaskName, Command, Schedule, Detail}, _From, State = #state{ tasks = Tasks }) ->
-    case supervisor:start_child('barile_worker_sup', [TaskName, Command, Schedule, Detail]) of
-        {ok, Pid} ->
-            NewTasks = dict:store(TaskName, {Pid, Command, Schedule, Detail}, Tasks),
-            lager:info("Adds a task: {~p, ~p, ~p, ~p, ~p}", [TaskName, Pid, Command, Schedule, Detail]),
-            {reply, ok, State#state{ tasks = NewTasks }};
-        {error, Reason} ->
-            {stop, Reason, State} 
-    end;
-handle_call({delete, TaskName}, _From, State) ->
-    case dict:find(TaskName, State#state.tasks) of
-        error ->
-            {reply, {TaskName, not_found}, State}; 
-        {ok, {Pid, _Cmd, _Schedule, _Detail}} ->
-            barile_worker:deactivate(Pid),
-            NewTasks = dict:erase(TaskName, State#state.tasks),
-            {reply, ok, State#state{ tasks = NewTasks }}
-    end;
-handle_call({show, all}, _From, State) ->
-    List = lists:map(fun({T, {P, C, Sch, Det}}) -> 
-                             Status = barile_worker:get_status(P),
-                            [
-                             {task_name, T}
-                             , {status, Status}
-                             , {pid, P}
-                             , {command, C}
-                             , {schedule, Sch}
-                             , {detail, Det}
-                            ]
-                     end, dict:to_list(State#state.tasks)),
-    {reply, List, State};
+handle_call({add_job, Job = {JobName, _Detail, _Schedule, _Tasks, _Envs }}, _From, State = #state{ jobs = Jobs }) ->
+	case dict:find(JobName, Jobs) of
+		error ->
+			case barile_worker_sup:spawn_child(Job) of
+				{ok, Pid} ->
+					NewJobs = dict:store(JobName, {Pid, Job}, Jobs),
+					error_logger:info_msg("Adds a job ~p, PID: ~P", [Job, Pid]),
+					{reply, ok, State#state{jobs = NewJobs}};
+				{error, Reason} ->
+					{reply, Reason, State}
+			end;
+		_ ->
+			{reply, already_registered_job_name, State}
+	end;
+handle_call({delete_job, JobName}, _From, State = #state{jobs = Jobs}) ->
+	case dict:find(JobName, Jobs) of
+		error ->
+			{reply, {JobName, not_found}, State};
+		{ok, {Pid, _Detail, _Schedule, _Tasks}} ->
+			barile_worker:deactivate(Pid),
+			NewJobs = dict:erase(JobName, Jobs),
+			error_logger:info_msg("Deleted a job ~ts (PID: ~p).", [JobName, Pid]),
+			{reply, ok, State#state{ jobs = NewJobs }}
+	end;
+handle_call({show, all}, _From, State = #state{ jobs = Jobs }) ->
+	List = lists:map(fun({JobName, {P, {JobName, Det, Sch, _Tasks, _Envs}}}) ->
+							 Status = barile_worker:get_status(P),
+							 [
+							  {pid, P}
+							  , {job_name, JobName}
+							  , {status, Status}
+							  , {schedule, Sch}
+							  , {detail, Det}
+							 ]
+					 end, dict:to_list(Jobs)),
+	{reply, List, State};
 handle_call({show, TaskName}, _From, State) ->
-    case dict:find(TaskName, State#state.tasks) of
-        error -> 
-            {reply, {TaskName, not_found}, State};
-        {ok, Task} ->
-            lager:info( "~p", [ Task ] ),
-            {reply, {TaskName, Task}, State}
-    end;
+	case dict:find(TaskName, State#state.jobs) of
+		error ->
+			{reply, {TaskName, not_found}, State};
+		{ok, Task} ->
+			error_logger:info( "~p", [ Task ] ),
+			{reply, {TaskName, Task}, State}
+	end;
 handle_call({members}, _From, State) ->
-    {reply, dict:to_list(State#state.nodes), State};
+	{reply, dict:to_list(State#state.nodes), State};
 handle_call({join, Node}, _From, State = #state{ nodes = Nodes }) ->
-    NewNodes = dict:store(Node, joinning, Nodes),
-    % TODO: health checks, if 'Node' is healthy, node status changes 
-    %       alive.
-    {reply, ok, State#state{ nodes = NewNodes }};
+	NewNodes = dict:store(Node, joinning, Nodes),
+	% TODO: health checks, if 'Node' is healthy, node status changes
+	%       alive.
+	{reply, ok, State#state{ nodes = NewNodes }};
 handle_call({leave, Node}, _From, State = #state{ nodes = Nodes }) ->
-    case dict:find(Node, Nodes) of 
-        error ->
-           {reply, {Node, not_found_node}, State};
-        _ ->
-           % TODO: health checks, if 'Node' is healthy, node status changes 
-           %       alive.
-           NewNodes = dict:store(Node, leaving, Nodes),
-           {reply, ok, State#state{ nodes = NewNodes }}
-    end;
-handle_call({activate, TaskName}, _From, State = #state{ tasks = Tasks }) ->
-    {Pid, _Cmd, _Schedule, _Detail} = dict:fetch(TaskName, Tasks),
-    Reply = barile_worker:activate(Pid),
-    {reply, Reply, State};
-handle_call({deactivate, TaskName}, _From, State = #state{ tasks = Tasks }) ->
-    {Pid, _Cmd, _Schedule, _Detail} = dict:fetch(TaskName, Tasks),
-    Reply = barile_worker:deactivate(Pid),
-    {reply, Reply, State};
+	case dict:find(Node, Nodes) of
+		error ->
+			{reply, {Node, not_found_node}, State};
+		_ ->
+			% TODO: health checks, if 'Node' is healthy, node status changes
+			%       alive.
+			NewNodes = dict:store(Node, leaving, Nodes),
+			{reply, ok, State#state{ nodes = NewNodes }}
+	end;
+handle_call({activate, JobName}, _From, State = #state{ jobs = Jobs }) ->
+	{Pid, {_JobName, _Detail, _Schedule, _Tasks, _Envs}} = dict:fetch(JobName, Jobs),
+	Reply = barile_worker:activate(Pid),
+	{reply, Reply, State};
+handle_call({deactivate, JobName}, _From, State = #state{ jobs = Jobs }) ->
+	{Pid, {_JobName, _Detail, _Schedule, _Tasks, _Envs}} = dict:fetch(JobName, Jobs),
+	Reply = barile_worker:deactivate(Pid),
+	{reply, Reply, State};
 handle_call(Request, _From, State) ->
-    {reply, {Request, bad_request}, State}.
-
+	{reply, {Request, bad_request}, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -290,7 +295,7 @@ handle_call(Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_cast(_Msg, State) ->
-    {noreply, State}.
+	{noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -303,7 +308,7 @@ handle_cast(_Msg, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
-    {noreply, State}.
+	{noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -317,7 +322,7 @@ handle_info(_Info, State) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-    ok.
+	ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -328,61 +333,28 @@ terminate(_Reason, _State) ->
 %% @end
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+	{ok, State}.
 
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
-%% TODO: transfer to escript
-%%-spec format_tasks([task()]) -> binary().
-%%format_tasks(Tasks) ->
-%%    lists:foldl(fun(X, Acc) -> Line = format_task(X),
-%%        << Acc/binary, Line/binary >>
-%%    end, <<>>, Tasks). 
-%%
-%%-spec format_task(task()) -> binary().
-%%format_task({TaskName, {_Pid, _Cmd, Schedule, Detail}}) ->
-%%    SchBin = format_schedule(Schedule),
-%%    <<TaskName/binary, "\t", SchBin/binary, "\t", Detail/binary, "\n">>.
-%%
-%%-spec format_schedule(schedule()) -> binary().
-%%format_schedule({Hour, Min, Day, Period}) ->
-%%    HourBin = timeunit_foldl(Hour),
-%%    MinBin  = timeunit_foldl(Min),
-%%    DayBin  = timeunit_foldl(Day),
-%%    PeriBin = erlang:integer_to_binary(Period),
-%%    <<"[ ", HourBin/binary,":",MinBin/binary, " ", DayBin/binary, " period:" ,PeriBin/binary, "min ]">>.
-%%
-%%-spec timeunit_foldl([hour()]|[minite()]|[day()], binary()) -> binary().
-%%timeunit_foldl([], Acc) ->
-%%    Acc;
-%%timeunit_foldl([X|List], Acc) ->
-%%    XB = erlang:integer_to_binary(X),
-%%    timeunit_foldl(List, << Acc/binary,",",XB/binary >>).
-%%
-%%-spec timeunit_foldl([hour()]|[minite()]|[day()]) -> binary().
-%%timeunit_foldl([]) ->
-%%    <<"all_day">>;
-%%timeunit_foldl([H|List]) ->
-%%    HB = erlang:integer_to_binary(H),
-%%    timeunit_foldl(List, HB).
--spec toml_to_tasks([term()]) -> [task()].
-toml_to_tasks(L) ->
-    TaskNames = proplists:get_keys(L),
-    lists:foldl(fun(Key, Acc) ->
-        Item = proplists:get_value(Key, L),
-        try
-            Day   = proplists:get_value(<<"day">>, Item),
-            Min   = proplists:get_value(<<"min">>, Item),
-            Hour  = proplists:get_value(<<"hour">>, Item),
-            Month = proplists:get_value(<<"month">>, Item),
-
-            Command  = proplists:get_value(<<"command">>, Item),
-            Schedule = {Hour, Min, Day, Month},
-            Detail   = proplists:get_value(<<"detail">>, Item),
-
-            [ {Key, Command, Schedule, Detail} | Acc ]
-        catch
-            throw:Error -> lager:error("~p",[Error])
-        end
-    end, [], TaskNames).
+-spec yaml_to_jobs([term()]) -> [task()].
+yaml_to_jobs(L) ->
+	JobName  = proplists:get_value("job_name",L),
+	Envs     = proplists:get_value("env",L),
+	Detail   = proplists:get_value("description", L),
+	Cron     = proplists:get_value("cron", proplists:get_value("schedule", L)),
+	Tasks    = proplists:get_value("tasks", L),
+	NewTasks = lists:foldl(fun(Line, Acc) ->
+								   TaskName = case proplists:lookup("name", Line) of
+												  none ->
+													  throw(not_found_name_field);
+												  {"name", Name} ->
+													  Name
+											  end,
+								   Command = case proplists:lookup("command", Line) of
+												 none ->
+													 "";
+												 {"command", Cmd} ->
+													 term_to_binary(Cmd)
+											 end,
+								   [{TaskName, Command}|Acc]
+						   end, [], Tasks),
+	{JobName, Detail, Cron, NewTasks, Envs}.

@@ -24,8 +24,8 @@
 %%% API functions
 %%%===================================================================
 
-spawn_child(Task) ->
-	supervisor:start_child(?MODULE, [Task]).
+spawn_child({JobName, Detail, Schedule, Tasks, Envs}) ->
+	supervisor:start_child(?MODULE, [JobName, Detail, Schedule, Tasks, Envs]).
 
 %%--------------------------------------------------------------------
 %% @doc

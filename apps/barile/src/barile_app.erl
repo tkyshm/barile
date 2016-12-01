@@ -7,22 +7,20 @@
 
 -behaviour(application).
 
--compile([{parse_transform, lager_transform}]).
-
 %% Application callbacks
 -export([start/2
-        ,stop/1]).
+		 ,stop/1]).
 
 %%====================================================================
 %% API
 %%====================================================================
 
 start(_StartType, _StartArgs) ->
-    'barile_sup':start_link().
+	'barile_sup':start_link().
 
 %%--------------------------------------------------------------------
 stop(_State) ->
-    ok.
+	ok.
 
 %%====================================================================
 %% Internal functions
